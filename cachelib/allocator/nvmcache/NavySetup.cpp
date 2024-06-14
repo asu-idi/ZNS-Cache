@@ -83,6 +83,10 @@ uint64_t setupBigHash(const navy::BigHashConfig& bigHashConfig,
 
   proto.setBigHash(std::move(bigHash), bigHashConfig.getSmallItemMaxSize());
 
+  // bigHashConfig.
+  // auto numberZone = 
+  // proto.setDeviceForBigHash();
+
   if (bigHashCacheOffset <= metadataSize) {
     throw std::invalid_argument("NVM cache size is not big enough!");
   }
@@ -145,6 +149,62 @@ void setupBlockCache(const navy::BlockCacheConfig& blockCacheConfig,
   proto.setBlockCache(std::move(blockCache));
 }
 
+
+void setupZoneCache(const navy::ZoneCacheConfig& blockCacheConfig,
+                     uint64_t blockCacheSize,
+                     uint32_t ioAlignSize,
+                     uint64_t metadataSize,
+                     bool usesRaidFiles,
+                     bool itemDestructorEnabled,
+                     navy::ZnsConfig znsConfig,
+                     cachelib::navy::CacheProto& proto) {
+  auto regionSize = blockCacheConfig.getRegionSize();
+  if (regionSize != alignUp(regionSize, ioAlignSize)) {
+    throw std::invalid_argument(
+        folly::sformat("Region size: {} is not aligned to ioAlignSize: {}",
+                       regionSize, ioAlignSize));
+  }
+
+  // Adjust starting size of block cache to ensure it is aligned to region
+  // size which is what we use for the stripe size when using RAID0Device.
+  uint64_t blockCacheOffset = metadataSize;
+  if (usesRaidFiles) {
+    auto adjustedBlockCacheOffset = alignUp(blockCacheOffset, regionSize);
+    auto cacheSizeAdjustment = adjustedBlockCacheOffset - blockCacheOffset;
+    XDCHECK_LT(cacheSizeAdjustment, blockCacheSize);
+    blockCacheSize -= cacheSizeAdjustment;
+    blockCacheOffset = adjustedBlockCacheOffset;
+  }
+  blockCacheSize = alignDown(blockCacheSize, regionSize);
+
+  XLOG(INFO) << "blockcache: starting offset: " << blockCacheOffset
+             << ", block cache size: " << blockCacheSize;
+
+  auto blockCache = cachelib::navy::createZoneCacheProto();
+  blockCache->setLayout(blockCacheOffset, blockCacheSize, regionSize);
+  blockCache->setChecksum(blockCacheConfig.getDataChecksum());
+
+  // set eviction policy
+  auto segmentRatio = blockCacheConfig.getSFifoSegmentRatio();
+  if (!segmentRatio.empty()) {
+    blockCache->setSegmentedFifoEvictionPolicy(std::move(segmentRatio));
+  } else if (blockCacheConfig.isLruEnabled()) {
+    blockCache->setLruEvictionPolicy();
+  } else {
+    blockCache->setFifoEvictionPolicy();
+  }
+  blockCache->setCleanRegionsPool(blockCacheConfig.getCleanRegions());
+
+  blockCache->setReinsertionConfig(blockCacheConfig.getReinsertionConfig());
+
+  blockCache->setNumInMemBuffers(blockCacheConfig.getNumInMemBuffers());
+  blockCache->setItemDestructorEnabled(itemDestructorEnabled);
+  blockCache->setPreciseRemove(blockCacheConfig.isPreciseRemove());
+
+  blockCache->setZnsConfig(znsConfig);
+  proto.setZoneCache(std::move(blockCache));
+}
+
 // Setup the CacheProto, includes BigHashProto and BlockCacheProto,
 // which is the configuration interface from Navy engine, and can be used to
 // create BigHash and BlockCache engines.
@@ -192,11 +252,18 @@ void setupCacheProtos(const navy::NavyConfig& config,
     blockCacheSize = totalCacheSize - metadataSize;
   }
 
-  // Set up BlockCache if enabled
-  if (blockCacheSize > 0) {
-    setupBlockCache(config.blockCache(), blockCacheSize, ioAlignSize,
+  if (config.usesZnsFiles()) {
+    setupZoneCache(config.zoneCache(), blockCacheSize, ioAlignSize,
                     metadataSize, config.usesRaidFiles(), itemDestructorEnabled,
+                    config.znsConfig(),
                     proto);
+  } else {
+    // Set up BlockCache if enabled
+    if (blockCacheSize > 0) {
+      setupBlockCache(config.blockCache(), blockCacheSize, ioAlignSize,
+                      metadataSize, config.usesRaidFiles(), itemDestructorEnabled,
+                      proto);
+    }
   }
 }
 
@@ -250,6 +317,33 @@ std::unique_ptr<cachelib::navy::Device> createDevice(
         blockSize,
         std::move(encryptor),
         maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0);
+  } else if (config.usesZnsFiles()) {
+    if (!config.znsConfig().getZnsDirect()) {
+      XLOGF(INFO, "Use ZNS Middle Device, {}", config.getZnsPath());
+      auto maxByteWrite = maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0;
+      XCHECK_EQ(maxByteWrite, 0) << "maxDeviceWriteSize should be 0, when using ZNS Middle";
+      return cachelib::navy::createZnsDevice(
+        config.getZnsPath(),
+        config.getFileSize(),
+        config.znsConfig().getZoneNum(),
+        blockSize,
+        std::move(encryptor),
+        maxByteWrite);
+    } else {
+      // useDirectZNS
+      XLOGF(INFO, "Use ZNS Direct Device, {}", config.getZnsPath());
+      auto maxByteWrite = maxDeviceWriteSize > 0 ? alignDown(maxDeviceWriteSize, blockSize) : 0;
+      XCHECK_NE(maxByteWrite, 0) << "maxDeviceWriteSize should not be 0, when using ZNS Direct";
+      XCHECK_EQ(config.znsConfig().getZoneNum(), 0) << "the param of zone number is not needed for ZNS Direct";
+      return cachelib::navy::createDirectZnsDevice(
+        config.getZnsPath(),
+        config.getFileSize(),
+        config.getTruncateFile(),
+        blockSize,
+        std::move(encryptor),
+        maxByteWrite);
+    }
+
   } else {
     return cachelib::navy::createMemoryDevice(config.getFileSize(),
                                               std::move(encryptor), blockSize);

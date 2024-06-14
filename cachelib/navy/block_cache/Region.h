@@ -73,12 +73,20 @@ class Region {
   Region(const Region&) = delete;
   Region& operator=(const Region&) = delete;
 
+  void startEvict();
+
+  bool isEvicting();
+
   // Immediately block future accesses to this region. Return true if
   // there are no pending operation to this region, false otherwise.
   // It is safe to repeatedly call this until success. Note that it is
   // only safe for one thread to call this, as we assume only a single
   // thread can be running region reclaim at a time.
   bool readyForReclaim();
+
+  bool readyForReclaimPure();
+
+  void readyForReclaimRevert();
 
   // Opens this region for write and allocate a slot of @size.
   // Fail if there's insufficient space.
@@ -224,6 +232,7 @@ class Region {
   static constexpr uint16_t kFlushPending{1u << 2};
   static constexpr uint16_t kFlushed{1u << 3};
   static constexpr uint16_t kCleanedup{1u << 4};
+  static constexpr uint16_t kEvicting{1u << 5};
 
   const RegionId regionId_{};
   const uint64_t regionSize_{0};
@@ -295,6 +304,13 @@ class RegionDescriptor {
 
   // Returns the unique region ID.
   RegionId id() const { return regionId_; }
+
+  void reset() {
+    mode_ = OpenMode::None;
+    regionId_ = RegionId{};
+    status_ = OpenStatus::Retry;
+    physReadMode_ = false;
+  }
 
  private:
   RegionDescriptor(OpenStatus status,

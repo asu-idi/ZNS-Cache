@@ -82,6 +82,67 @@ class BlockCacheProto {
 
   // (Optional) Set if the preciseRemove flag.
   virtual void setPreciseRemove(bool preciseRemove) = 0;
+
+};
+
+// *Proto class convention:
+// Every method must be called no more than once and may throw std::exception
+// (or derived) if parameters are invalid.
+
+// Block Cache (BC) engine proto. BC is used to cache medium size objects
+// (1Kb - 512Kb typically). User sets up BC parameters and passes proto
+// to CacheProto::setBlockCache.
+class ZoneCacheProto {
+ public:
+  virtual ~ZoneCacheProto() = default;
+
+  // Set cache layout. Cache will start at @baseOffset and will be @size bytes
+  // on the device. @regionSize is the region size (bytes).
+  virtual void setLayout(uint64_t baseOffset,
+                         uint64_t size,
+                         uint32_t regionSize) = 0;
+
+  // Enable data checksumming (default: disabled)
+  virtual void setChecksum(bool enable) = 0;
+
+  // set*EvictionPolicy function family: sets eviction policy. Supports LRU,
+  // LRU with deferred insert and FIFO. Must set up one of them.
+
+  // Sets LRU eviction policy.
+  virtual void setLruEvictionPolicy() = 0;
+
+  // Sets FIFO eviction policy.
+  virtual void setFifoEvictionPolicy() = 0;
+
+  // Sets SegmentedFIFO eviction policy.
+  // @segmentRatio  ratio of the size of each segment.
+  virtual void setSegmentedFifoEvictionPolicy(
+      std::vector<unsigned int> segmentRatio) = 0;
+
+  // (Optional) In case of stack alloc, determines recommended size of the
+  // read buffer. Must be multiple of block size.
+  virtual void setReadBufferSize(uint32_t size) = 0;
+
+  // (Optional) How many clean regions GC should (try to) maintain in the pool.
+  // Default: 1
+  virtual void setCleanRegionsPool(uint32_t n) = 0;
+
+  // (Optional) Number of In memory buffers to maintain. Default: 0
+  virtual void setNumInMemBuffers(uint32_t numInMemBuffers) = 0;
+
+  // (Optional) Enable a reinsertion policy with the config.
+  virtual void setReinsertionConfig(
+      const BlockCacheReinsertionConfig& config) = 0;
+
+  // (Optional) Set if the item destructor feature is enabled.
+  virtual void setItemDestructorEnabled(bool itemDestructorEnabled) = 0;
+
+  // (Optional) Set if the preciseRemove flag.
+  virtual void setPreciseRemove(bool preciseRemove) = 0;
+
+  virtual void setZnsConfig(ZnsConfig config) {
+    
+  }
 };
 
 // BigHash engine proto. BigHash is used to cache small objects (under 2KB)
@@ -120,11 +181,17 @@ class CacheProto {
   // Sets device that engine will use.
   virtual void setDevice(std::unique_ptr<Device> device) = 0;
 
+  // Sets device that bighash will use.
+  virtual void setDeviceForBigHash(std::unique_ptr<Device> device) {}
+
   // Sets metadata size.
   virtual void setMetadataSize(size_t metadataSize) = 0;
 
   // Set up block cache engine.
   virtual void setBlockCache(std::unique_ptr<BlockCacheProto> proto) = 0;
+
+  // Set up zone cache engine.
+  virtual void setZoneCache(std::unique_ptr<ZoneCacheProto> proto) = 0;
 
   // Set up big hash engine.
   virtual void setBigHash(std::unique_ptr<BigHashProto> proto,
@@ -162,6 +229,8 @@ class CacheProto {
 
 // Creates BlockCache engine prototype.
 std::unique_ptr<BlockCacheProto> createBlockCacheProto();
+
+std::unique_ptr<ZoneCacheProto> createZoneCacheProto();
 
 // Creates BigHash engine prototype.
 std::unique_ptr<BigHashProto> createBigHashProto();
@@ -207,6 +276,34 @@ std::unique_ptr<Device> createFileDevice(
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t maxDeviceWriteSize);
 
+// Creates a ZNS file device.
+//
+// @param fileName              name of the file
+// @param singleFileSize        size of the file
+// @param truncateFile          whether to truncate the file
+// @param blockSize             device block size
+// @param encryptor             encryption object
+// @param maxDeviceWriteSize    device maximum granularity of writes
+std::unique_ptr<Device> createZnsDevice(
+    std::string fileName,
+    uint64_t fileSize,
+    uint32_t zoneNum,
+    uint32_t blockSize,
+    std::shared_ptr<DeviceEncryptor> encryptor,
+    uint32_t maxDeviceWriteSize);
+
+std::unique_ptr<Device> createZnsDeviceForBigHash(
+    std::string fileName,
+    uint64_t zoneNumber,
+    std::shared_ptr<DeviceEncryptor> encryptor);
+
+ std::unique_ptr<Device> createDirectZnsDevice(
+     std::string fileName,
+     uint64_t znsDeviceSize,
+     bool truncateFile,
+     uint32_t blockSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize);
 } // namespace navy
 } // namespace cachelib
 } // namespace facebook

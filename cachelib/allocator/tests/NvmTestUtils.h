@@ -18,6 +18,9 @@
 
 #include <folly/dynamic.h>
 
+#include <folly/logging/LogConfigParser.h>
+#include <folly/logging/LoggerDB.h>
+
 #include "cachelib/allocator/nvmcache/NavyConfig.h"
 
 namespace facebook {

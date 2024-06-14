@@ -50,6 +50,9 @@ class LruPolicy final : public EvictionPolicy {
   // Evicts the least recently used region and stops tracking.
   RegionId evict() override;
 
+  // Manually, evicts a region and stops tracking.
+  RegionId evictAt(const RegionId &regionId) override;
+
   // Resets LRU policy to the initial state.
   void reset() override;
 

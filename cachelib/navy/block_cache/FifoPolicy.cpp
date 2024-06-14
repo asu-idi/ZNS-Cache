@@ -53,6 +53,11 @@ RegionId FifoPolicy::evict() {
   return rid;
 }
 
+RegionId FifoPolicy::evictAt(const RegionId &regionId) {
+  XLOGF(INFO, "ignore regionId:{}", regionId.index());
+  return evict();
+}
+
 void FifoPolicy::reset() {
   std::lock_guard<std::mutex> lock{mutex_};
   queue_.clear();
@@ -119,6 +124,11 @@ RegionId SegmentedFifoPolicy::evict() {
   lowestPri.pop_front();
   rebalanceLocked();
   return rid;
+}
+
+RegionId SegmentedFifoPolicy::evictAt(const RegionId &regionId) {
+  XLOGF(INFO, "ignore regionId:{}", regionId.index());
+  return evict();
 }
 
 void SegmentedFifoPolicy::rebalanceLocked() {

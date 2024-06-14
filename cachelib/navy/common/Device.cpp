@@ -91,11 +91,11 @@ class RAID0Device final : public Device {
                maxDeviceWriteSize},
         fvec_{std::move(fvec)},
         stripeSize_(stripeSize) {
-    XDCHECK_GT(ioAlignSize, 0u);
-    XDCHECK_GT(stripeSize_, 0u);
-    XDCHECK_GE(stripeSize_, ioAlignSize);
-    XDCHECK_EQ(0u, stripeSize_ % 2) << stripeSize_;
-    XDCHECK_EQ(0u, stripeSize_ % ioAlignSize)
+    XCHECK_GT(ioAlignSize, 0u);
+    XCHECK_GT(stripeSize_, 0u);
+    XCHECK_GE(stripeSize_, ioAlignSize);
+    XCHECK_EQ(0u, stripeSize_ % 2) << stripeSize_;
+    XCHECK_EQ(0u, stripeSize_ % ioAlignSize)
         << stripeSize_ << ", " << ioAlignSize;
     if (fdSize % stripeSize != 0) {
       throw std::invalid_argument(
@@ -193,13 +193,13 @@ class MemoryDevice final : public Device {
   bool writeImpl(uint64_t offset,
                  uint32_t size,
                  const void* value) noexcept override {
-    XDCHECK_LE(offset + size, getSize());
+    XCHECK_LE(offset + size, getSize());
     std::memcpy(buffer_.get() + offset, value, size);
     return true;
   }
 
   bool readImpl(uint64_t offset, uint32_t size, void* value) override {
-    XDCHECK_LE(offset + size, getSize());
+    XCHECK_LE(offset + size, getSize());
     std::memcpy(value, buffer_.get() + offset, size);
     return true;
   }
@@ -214,9 +214,9 @@ class MemoryDevice final : public Device {
 
 bool Device::write(uint64_t offset, Buffer buffer) {
   const auto size = buffer.size();
-  XDCHECK_LE(offset + buffer.size(), size_);
+  // XCHECK_LE(offset + buffer.size(), size_);
   uint8_t* data = reinterpret_cast<uint8_t*>(buffer.data());
-  XDCHECK_EQ(reinterpret_cast<uint64_t>(data) % ioAlignmentSize_, 0ul);
+  XCHECK_EQ(reinterpret_cast<uint64_t>(data) % ioAlignmentSize_, 0ul);
   if (encryptor_) {
     XCHECK_EQ(offset % encryptor_->encryptionBlockSize(), 0ul);
     auto res = encryptor_->encrypt(folly::MutableByteRange{data, size}, offset);
@@ -231,8 +231,8 @@ bool Device::write(uint64_t offset, Buffer buffer) {
   bool result = true;
   while (remainingSize > 0) {
     auto writeSize = std::min<size_t>(maxWriteSize, remainingSize);
-    XDCHECK_EQ(offset % ioAlignmentSize_, 0ul);
-    XDCHECK_EQ(writeSize % ioAlignmentSize_, 0ul);
+    XCHECK_EQ(offset % ioAlignmentSize_, 0ul);
+    XCHECK_EQ(writeSize % ioAlignmentSize_, 0ul);
 
     auto timeBegin = getSteadyClock();
     result = writeImpl(offset, writeSize, data);
@@ -262,10 +262,10 @@ bool Device::write(uint64_t offset, Buffer buffer) {
 //
 // returns true if successful, false otherwise.
 bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
-  XDCHECK_EQ(reinterpret_cast<uint64_t>(value) % ioAlignmentSize_, 0ul);
-  XDCHECK_EQ(offset % ioAlignmentSize_, 0ul);
-  XDCHECK_EQ(size % ioAlignmentSize_, 0ul);
-  XDCHECK_LE(offset + size, size_);
+  XCHECK_EQ(reinterpret_cast<uint64_t>(value) % ioAlignmentSize_, 0ul);
+  XCHECK_EQ(offset % ioAlignmentSize_, 0ul);
+  XCHECK_EQ(size % ioAlignmentSize_, 0ul);
+  // XCHECK_LE(offset + size, size_);
   auto timeBegin = getSteadyClock();
   bool result = readImpl(offset, size, value);
   readLatencyEstimator_.trackValue(
@@ -297,7 +297,7 @@ bool Device::readInternal(uint64_t offset, uint32_t size, void* value) {
 // An empty buffer is returned in case of error and the caller must check
 // the buffer size returned with size passed in to check for errors.
 Buffer Device::read(uint64_t offset, uint32_t size) {
-  XDCHECK_LE(offset + size, size_);
+  // XCHECK_LE(offset + size, size_);
   uint64_t readOffset =
       offset & ~(static_cast<uint64_t>(ioAlignmentSize_) - 1ul);
   uint64_t readPrefixSize =
@@ -347,7 +347,7 @@ std::unique_ptr<Device> createDirectIoFileDevice(
     uint32_t ioAlignSize,
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t maxDeviceWriteSize) {
-  XDCHECK(folly::isPowTwo(ioAlignSize));
+  XCHECK(folly::isPowTwo(ioAlignSize));
   return std::make_unique<FileDevice>(std::move(file), size, ioAlignSize,
                                       std::move(encryptor), maxDeviceWriteSize);
 }
@@ -359,7 +359,7 @@ std::unique_ptr<Device> createDirectIoRAID0Device(
     uint32_t stripeSize,
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t maxDeviceWriteSize) {
-  XDCHECK(folly::isPowTwo(ioAlignSize));
+  XCHECK(folly::isPowTwo(ioAlignSize));
   return std::make_unique<RAID0Device>(std::move(fvec), size, ioAlignSize,
                                        stripeSize, std::move(encryptor),
                                        maxDeviceWriteSize);

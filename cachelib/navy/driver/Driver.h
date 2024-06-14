@@ -36,6 +36,8 @@ class Driver final : public AbstractCache {
  public:
   struct Config {
     std::unique_ptr<Device> device;
+    std::unique_ptr<Device> deviceForBigHash;
+
     std::unique_ptr<JobScheduler> scheduler;
     std::unique_ptr<Engine> largeItemCache;
     std::unique_ptr<Engine> smallItemCache;
@@ -159,6 +161,8 @@ class Driver final : public AbstractCache {
   const size_t metadataSize_{};
 
   std::unique_ptr<Device> device_;
+  std::unique_ptr<Device> deviceForBigHash_;
+
   std::unique_ptr<JobScheduler> scheduler_;
   // Large item cache assumed to have fast response in case entry doesn't
   // exists (check metadata only).
@@ -185,6 +189,9 @@ class Driver final : public AbstractCache {
   mutable AtomicCounter ioErrorCount_;
   mutable AtomicCounter parcelMemory_; // In bytes
   mutable AtomicCounter concurrentInserts_;
+
+  mutable util::PercentileStats readLatencyEstimator_;
+  mutable util::PercentileStats writeLatencyEstimator_;
 };
 } // namespace navy
 } // namespace cachelib

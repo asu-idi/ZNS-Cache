@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <string>
 #include <vector>
+#include <fstream>
 
 namespace facebook {
 namespace hw {
@@ -439,6 +440,19 @@ uint64_t nandWriteBytes(const folly::StringPiece& deviceName,
   // We got a model string but didn't match the vendor.
   throw std::invalid_argument(folly::sformat(
       "Vendor not recogized in device model number {}", modelNumber.value()));
+}
+
+size_t znsNandWriteBytes(const std::string &dev) {
+  // TODO handle dev
+  auto path = "/sys/block/nvme0n2/stat";
+  std::ifstream myfile;
+  myfile.open(path);
+  size_t rio, rm, rs, rt;
+  size_t wio, wm, ws, wt;
+  myfile >> rio >> rm >> rs >> rt;
+  myfile >> wio >> wm >> ws >> wt;
+  myfile.close();
+  return ws * 512;
 }
 
 } // namespace hw

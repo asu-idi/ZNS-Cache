@@ -66,5 +66,7 @@ uint64_t nandWriteBytes(const folly::StringPiece& deviceName,
                         std::shared_ptr<ProcessFactory> processFactory =
                             std::make_shared<ProcessFactory>());
 
+size_t znsNandWriteBytes(const std::string &dev);
+
 } // namespace hw
 } // namespace facebook

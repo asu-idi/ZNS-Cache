@@ -62,6 +62,8 @@ inline std::ostream& operator<<(std::ostream& os, RegionId rid) {
   return os << "}";
 }
 
+using ZoneId = RegionId;
+
 // @AbsAddress and @RelAddress are two way to represent address on the device.
 // Region manager converts between representations.
 

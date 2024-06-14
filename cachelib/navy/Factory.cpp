@@ -27,8 +27,10 @@
 #include "cachelib/navy/block_cache/BlockCache.h"
 #include "cachelib/navy/block_cache/FifoPolicy.h"
 #include "cachelib/navy/block_cache/LruPolicy.h"
+#include "cachelib/navy/common/Device.h"
 #include "cachelib/navy/driver/Driver.h"
 #include "cachelib/navy/serialization/RecordIO.h"
+#include "cachelib/navy/zone_cache/ZoneCache.h"
 
 /* O_DIRECT not available on Mac OS */
 #ifndef O_DIRECT
@@ -125,6 +127,96 @@ class BlockCacheProtoImpl final : public BlockCacheProto {
   BlockCache::Config config_;
 };
 
+class ZoneCacheProtoImpl final : public ZoneCacheProto {
+ public:
+  ZoneCacheProtoImpl() = default;
+  ~ZoneCacheProtoImpl() override = default;
+
+  void setLayout(uint64_t baseOffset,
+                 uint64_t size,
+                 uint32_t regionSize) override {
+    if (size <= 0 || regionSize <= 0) {
+      throw std::invalid_argument(folly::sformat(
+          "Invalid layout. size: {}, regionSize: {}.", size, regionSize));
+    }
+    config_.cacheBaseOffset = baseOffset;
+    config_.cacheSize = size;
+    config_.regionSize = regionSize;
+  }
+
+  void setChecksum(bool enable) override { config_.checksum = enable; }
+
+  void setLruEvictionPolicy() override {
+    if (!(config_.cacheSize > 0 && config_.regionSize > 0)) {
+      throw std::logic_error("layout is not set");
+    }
+    auto numRegions = config_.getNumRegions();
+    if (config_.evictionPolicy) {
+      throw std::invalid_argument("There's already an eviction policy set");
+    }
+    config_.evictionPolicy = std::make_unique<LruPolicy>(numRegions);
+  }
+
+  void setFifoEvictionPolicy() override {
+    if (config_.evictionPolicy) {
+      throw std::invalid_argument("There's already an eviction policy set");
+    }
+    config_.evictionPolicy = std::make_unique<FifoPolicy>();
+  }
+
+  void setSegmentedFifoEvictionPolicy(
+      std::vector<unsigned int> segmentRatio) override {
+    if (config_.evictionPolicy) {
+      throw std::invalid_argument("There's already an eviction policy set");
+    }
+    config_.numPriorities = static_cast<uint16_t>(segmentRatio.size());
+    config_.evictionPolicy =
+        std::make_unique<SegmentedFifoPolicy>(std::move(segmentRatio));
+  }
+
+  void setReadBufferSize(uint32_t size) override {
+    config_.readBufferSize = size;
+  }
+
+  void setCleanRegionsPool(uint32_t n) override {
+    config_.cleanRegionsPool = n;
+  }
+
+  void setReinsertionConfig(
+      const BlockCacheReinsertionConfig& reinsertionConfig) override {
+    config_.reinsertionConfig = reinsertionConfig;
+  }
+
+  void setDevice(Device* device) { config_.device = device; }
+
+  void setNumInMemBuffers(uint32_t numInMemBuffers) override {
+    config_.numInMemBuffers = numInMemBuffers;
+  }
+
+  void setItemDestructorEnabled(bool itemDestructorEnabled) override {
+    config_.itemDestructorEnabled = itemDestructorEnabled;
+  }
+
+  void setPreciseRemove(bool preciseRemove) override {
+    config_.preciseRemove = preciseRemove;
+  }
+
+  std::unique_ptr<Engine> create(JobScheduler& scheduler,
+                                 DestructorCallback cb) && {
+    config_.scheduler = &scheduler;
+    config_.destructorCb = std::move(cb);
+    config_.validate();
+    return std::make_unique<ZoneCache>(std::move(config_));
+  }
+
+  void setZnsConfig(ZnsConfig config) {
+    config_.znsConfig = config;
+  }
+
+ private:
+  ZoneCache::Config config_;
+};
+
 class BigHashProtoImpl final : public BigHashProto {
  public:
   BigHashProtoImpl() = default;
@@ -189,10 +281,19 @@ class CacheProtoImpl final : public CacheProto {
     config_.device = std::move(device);
   }
 
+  void setDeviceForBigHash(std::unique_ptr<Device> device) override {
+    // config_.device = std::move(device);
+    config_.deviceForBigHash = std::move(device);
+  }
+
   void setMetadataSize(size_t size) override { config_.metadataSize = size; }
 
   void setBlockCache(std::unique_ptr<BlockCacheProto> proto) override {
     blockCacheProto_ = std::move(proto);
+  }
+
+  void setZoneCache(std::unique_ptr<ZoneCacheProto> proto) override {
+    zoneCacheProto_ = std::move(proto);
   }
 
   void setBigHash(std::unique_ptr<BigHashProto> proto,
@@ -258,10 +359,23 @@ class CacheProtoImpl final : public CacheProto {
       }
     }
 
+    if (zoneCacheProto_) {
+      auto zProto = dynamic_cast<ZoneCacheProtoImpl*>(zoneCacheProto_.get());
+      if (zProto != nullptr) {
+        zProto->setDevice(config_.device.get());
+        config_.largeItemCache =
+            std::move(*zProto).create(*config_.scheduler, destructorCb_);
+      }
+    }
+
     if (bigHashProto_) {
       auto bhProto = dynamic_cast<BigHashProtoImpl*>(bigHashProto_.get());
       if (bhProto != nullptr) {
-        bhProto->setDevice(config_.device.get());
+        if (config_.deviceForBigHash != nullptr) {
+          bhProto->setDevice(config_.deviceForBigHash.get());
+        } else {
+          bhProto->setDevice(config_.device.get());
+        }
         bhProto->setDestructorCb(destructorCb_);
         config_.smallItemCache = std::move(*bhProto).create();
       }
@@ -272,6 +386,7 @@ class CacheProtoImpl final : public CacheProto {
 
  private:
   DestructorCallback destructorCb_;
+  std::unique_ptr<ZoneCacheProto> zoneCacheProto_;
   std::unique_ptr<BlockCacheProto> blockCacheProto_;
   std::unique_ptr<BigHashProto> bigHashProto_;
   Driver::Config config_;
@@ -327,6 +442,10 @@ folly::File openCacheFile(const std::string& fileName,
   return f;
 }
 } // namespace
+
+std::unique_ptr<ZoneCacheProto> createZoneCacheProto() {
+  return std::make_unique<ZoneCacheProtoImpl>();
+}
 
 std::unique_ptr<BlockCacheProto> createBlockCacheProto() {
   return std::make_unique<BlockCacheProtoImpl>();
@@ -397,6 +516,29 @@ std::unique_ptr<Device> createFileDevice(
   return createDirectIoFileDevice(std::move(f), singleFileSize, blockSize,
                                   std::move(encryptor), maxDeviceWriteSize);
 }
+
+std::unique_ptr<Device> createZnsDevice(
+    std::string fileName,
+    uint64_t fileSize,
+    uint32_t zoneNum,
+    uint32_t blockSize,
+    std::shared_ptr<DeviceEncryptor> encryptor,
+    uint32_t maxDeviceWriteSize) {
+  return createZonedDevice(fileName, fileSize, zoneNum, blockSize,
+                                  std::move(encryptor), maxDeviceWriteSize);
+}
+
+
+ std::unique_ptr<Device> createDirectZnsDevice(
+     std::string fileName,
+     uint64_t znsDeviceSize,
+     bool truncateFile,
+     uint32_t blockSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize) {
+   return createDirectIoZNSDevice(fileName, znsDeviceSize, blockSize,
+                                   std::move(encryptor), maxDeviceWriteSize);
+ }
 
 } // namespace navy
 } // namespace cachelib

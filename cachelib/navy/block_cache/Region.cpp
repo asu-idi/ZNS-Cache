@@ -25,6 +25,35 @@ bool Region::readyForReclaim() {
   return activeOpenLocked() == 0;
 }
 
+void Region::startEvict() {
+  std::lock_guard<std::mutex> l{lock_};
+  flags_ |= kEvicting;
+  // return activeOpenLocked() == 0;
+}
+
+bool Region::isEvicting() {
+  std::lock_guard<std::mutex> l{lock_};
+  return flags_ & kEvicting;
+  // return activeOpenLocked() == 0;
+}
+
+bool Region::readyForReclaimPure() {
+  std::lock_guard<std::mutex> l{lock_};
+  if (activeOpenLocked() == 0) {
+    flags_ |= kBlockAccess;
+    return true;
+  } else {
+    XLOGF(ERR, "not ready for reclaim status: phy {}, inmem {}, write {}", activePhysReaders_, activeInMemReaders_, activeWriters_);
+    return false;
+  }
+}
+
+void Region::readyForReclaimRevert() {
+  std::lock_guard<std::mutex> l{lock_};
+  // flags_ |= kBlockAccess;
+  flags_ ^= kBlockAccess;
+}
+
 uint32_t Region::activeOpenLocked() {
   return activePhysReaders_ + activeInMemReaders_ + activeWriters_;
 }
@@ -71,6 +100,7 @@ Region::FlushRes Region::flushBuffer(
   }
   if (!isFlushedLocked()) {
     lock.unlock();
+    XLOGF(DBG, "flush region id:{}", regionId_.index());
     if (callBack(RelAddress{regionId_, 0}, buffer_->view())) {
       lock.lock();
       flags_ |= kFlushed;

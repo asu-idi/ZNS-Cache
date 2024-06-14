@@ -33,12 +33,14 @@ namespace facebook {
 namespace cachelib {
 namespace cachebench {
 
+
 template <typename Allocator>
 uint64_t Cache<Allocator>::fetchNandWrites() const {
   size_t total = 0;
   for (const auto& d : config_.writeAmpDeviceList) {
     try {
-      total += facebook::hw::nandWriteBytes(d);
+      // total += facebook::hw::nandWriteBytes(d);
+      total += facebook::hw::znsNandWriteBytes(d);
     } catch (const std::exception& e) {
       XLOGF(ERR, "Exception fetching nand writes for {}. Msg: {}", d, e.what());
       return 0;
@@ -46,6 +48,8 @@ uint64_t Cache<Allocator>::fetchNandWrites() const {
   }
   return total;
 }
+
+
 
 template <typename Allocator>
 Cache<Allocator>::Cache(const CacheConfig& config,
@@ -138,7 +142,19 @@ Cache<Allocator>::Cache(const CacheConfig& config,
                                            config_.nvmCacheSizeMB * MB,
                                            true /*truncateFile*/);
       } else {
-        nvmConfig.navyConfig.setSimpleFile(path, config_.nvmCacheSizeMB * MB);
+        if (config_.navyUseZns) {
+          XLOG(INFO, "Using Zoned Device.");
+          // nvmConfig.navyConfig.setDeviceMaxWriteSize(0x4000);
+          nvmConfig.navyConfig.setZnsFile(path, config_.nvmCacheSizeMB * MB, config_.navyZnsZoneNum);
+          if (config_.navyZnsDirect) {
+            nvmConfig.navyConfig.znsConfig().setZoneNum_(0);
+            nvmConfig.navyConfig.znsConfig().setZnsDirect(true);
+          } else {
+            nvmConfig.navyConfig.znsConfig().setZoneNum_(config_.navyZnsZoneNum);
+          }
+        } else {
+          nvmConfig.navyConfig.setSimpleFile(path, config_.nvmCacheSizeMB * MB);
+        }
       }
     } else if (config_.nvmCachePaths.size() > 1) {
       // set up a software raid-0 across each nvm cache path.
@@ -154,6 +170,31 @@ Cache<Allocator>::Cache(const CacheConfig& config,
           config_.navyReqOrderShardsPower);
     }
     nvmConfig.navyConfig.setBlockSize(config_.navyBlockSize);
+
+    // configure ZoneCache
+    auto& zcConfig = nvmConfig.navyConfig.zoneCache()
+                         .setDataChecksum(config_.navyDataChecksum)
+                         .setCleanRegions(config_.navyCleanRegions)
+                         .setRegionSize(config_.navyRegionSizeMB * MB);
+
+    // by default lru. if more than one fifo ratio is present, we use
+    // segmented fifo. otherwise, simple fifo.
+    if (!config_.navySegmentedFifoSegmentRatio.empty()) {
+      if (config.navySegmentedFifoSegmentRatio.size() == 1) {
+        zcConfig.enableFifo();
+      } else {
+        zcConfig.enableSegmentedFifo(config_.navySegmentedFifoSegmentRatio);
+      }
+    }
+
+    if (config_.navyHitsReinsertionThreshold > 0) {
+      zcConfig.enableHitsBasedReinsertion(
+          static_cast<uint8_t>(config_.navyHitsReinsertionThreshold));
+    }
+    if (config_.navyProbabilityReinsertionThreshold > 0) {
+      zcConfig.enablePctBasedReinsertion(
+          config_.navyProbabilityReinsertionThreshold);
+    }
 
     // configure BlockCache
     auto& bcConfig = nvmConfig.navyConfig.blockCache()
@@ -579,6 +620,22 @@ Stats Cache<Allocator>::getStats() const {
     double bcLogicalBytes = lookup("navy_bc_logical_written");
     ret.numNvmLogicalBytesWritten =
         static_cast<size_t>(bhLogicalBytes + bcLogicalBytes);
+
+    ret.debugLatencyMicrosP50 = lookup("debug_latency_us_p50");
+    ret.debugLatencyMicrosP90 = lookup("debug_latency_us_p90");
+    ret.debugLatencyMicrosP99 = lookup("debug_latency_us_p99");
+    ret.debugLatencyMicrosP999 = lookup("debug_latency_us_p999");
+
+    ret.cacheReadLatencyMicrosP50 = lookup("navy_cache_read_latency_us_p50");
+    ret.cacheReadLatencyMicrosP90 = lookup("navy_cache_read_latency_us_p90");
+    ret.cacheReadLatencyMicrosP99 = lookup("navy_cache_read_latency_us_p99");
+    ret.cacheReadLatencyMicrosP999 = lookup("navy_cache_read_latency_us_p999");
+
+    ret.cacheWriteLatencyMicrosP50 = lookup("navy_cache_write_latency_us_p50");
+    ret.cacheWriteLatencyMicrosP90 = lookup("navy_cache_write_latency_us_p90");
+    ret.cacheWriteLatencyMicrosP99 = lookup("navy_cache_write_latency_us_p99");
+    ret.cacheWriteLatencyMicrosP999 = lookup("navy_cache_write_latency_us_p999");
+
     ret.nvmReadLatencyMicrosP50 = lookup("navy_device_read_latency_us_p50");
     ret.nvmReadLatencyMicrosP90 = lookup("navy_device_read_latency_us_p90");
     ret.nvmReadLatencyMicrosP99 = lookup("navy_device_read_latency_us_p99");
@@ -589,6 +646,7 @@ Stats Cache<Allocator>::getStats() const {
     ret.nvmReadLatencyMicrosP999999 =
         lookup("navy_device_read_latency_us_p999999");
     ret.nvmReadLatencyMicrosP100 = lookup("navy_device_read_latency_us_p100");
+
     ret.nvmWriteLatencyMicrosP50 = lookup("navy_device_write_latency_us_p50");
     ret.nvmWriteLatencyMicrosP90 = lookup("navy_device_write_latency_us_p90");
     ret.nvmWriteLatencyMicrosP99 = lookup("navy_device_write_latency_us_p99");

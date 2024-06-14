@@ -153,7 +153,7 @@ class Device {
   virtual bool readImpl(uint64_t offset, uint32_t size, void* value) = 0;
   virtual void flushImpl() = 0;
 
- private:
+ protected:
   mutable AtomicCounter bytesWritten_;
   mutable AtomicCounter bytesRead_;
   mutable AtomicCounter writeIOErrors_;
@@ -191,6 +191,15 @@ std::unique_ptr<Device> createDirectIoFileDevice(
     uint32_t ioAlignSize,
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t maxDeviceWriteSize);
+
+std::unique_ptr<Device> createZonedDevice(
+    std::string devPath,
+    uint64_t fileSize,
+    uint32_t zoneNum,
+    uint32_t ioAlignSize,
+    std::shared_ptr<DeviceEncryptor> encryptor,
+    uint32_t maxDeviceWriteSize);
+
 std::unique_ptr<Device> createDirectIoRAID0Device(
     std::vector<folly::File> fVec,
     uint64_t size, // size of each device in the RAID
@@ -205,6 +214,13 @@ std::unique_ptr<Device> createMemoryDevice(
     uint64_t size,
     std::shared_ptr<DeviceEncryptor> encryptor,
     uint32_t ioAlignSize = 1);
+
+ std::unique_ptr<Device> createDirectIoZNSDevice(
+     folly::StringPiece file,
+     uint64_t size,
+     uint32_t ioAlignSize,
+     std::shared_ptr<DeviceEncryptor> encryptor,
+     uint32_t maxDeviceWriteSize);
 } // namespace navy
 } // namespace cachelib
 } // namespace facebook

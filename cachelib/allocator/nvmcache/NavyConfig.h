@@ -19,6 +19,7 @@
 #include <folly/dynamic.h>
 #include <folly/logging/xlog.h>
 
+#include <cstdint>
 #include <stdexcept>
 
 #include "cachelib/allocator/nvmcache/BlockCacheReinsertionPolicy.h"
@@ -230,6 +231,128 @@ class BlockCacheReinsertionConfig {
  * - set data checksum
  * - get the values of all the above parameters
  */
+class ZoneCacheConfig {
+ public:
+  // Enable FIFO eviction policy (LRU will be disabled).
+  ZoneCacheConfig& enableFifo() noexcept {
+    lru_ = false;
+    return *this;
+  }
+
+  // Enable segmented FIFO eviction policy (LRU will be disabled)
+  // @param sFifoSegmentRatio maps to segments in the order from
+  //        least-important to most-important.
+  //        e.g. {1, 1, 1} gives equal share in each of the 3 segments;
+  //             {1, 2, 3} gives the 1/6th of the items in the first segment (P0
+  //             least important), 2/6th of the items in the second segment
+  //             (P1), and finally 3/6th of the items in the third segment (P2).
+  ZoneCacheConfig& enableSegmentedFifo(
+      std::vector<unsigned int> sFifoSegmentRatio) noexcept {
+    sFifoSegmentRatio_ = std::move(sFifoSegmentRatio);
+    lru_ = false;
+    return *this;
+  }
+
+  // Enable hit-based reinsertion policy.
+  // When evicting regions, items that exceed this threshold of access will be
+  // preserved by reinserting them internally.
+  // @throw std::invalid_argument if any other reinsertion policy has been
+  // enabled.
+  ZoneCacheConfig& enableHitsBasedReinsertion(uint8_t hitsThreshold);
+
+  // Enable percentage based reinsertion policy.
+  // This is used for testing where a certain fraction of evicted items
+  // (governed by the percentage) are always reinserted.
+  // @throw std::invalid_argument if any other reinsertion policy has
+  //        been enabled or the input value is not in the range of 0~100.
+  ZoneCacheConfig& enablePctBasedReinsertion(unsigned int pctThreshold);
+
+  // Enable a customized reinsertion policy created by the user.
+  // @throw std::invalid_argument if any other reinsertion policy has been
+  // enabled.
+  ZoneCacheConfig& enableCustomReinsertion(
+      std::shared_ptr<BlockCacheReinsertionPolicy> policy);
+
+  // Set number of clean regions that are maintained for incoming write and
+  // whether the writes are buffered in-memory.
+  // Navy needs to maintain sufficient buffers for each clean region that is
+  // reserved. This ensures each time we obtain a new in-mem buffer, we have a
+  // clean region to flush it to flash once it's ready.
+  ZoneCacheConfig& setCleanRegions(uint32_t cleanRegions) noexcept;
+
+  ZoneCacheConfig& setRegionSize(uint32_t regionSize) noexcept {
+    regionSize_ = regionSize;
+    return *this;
+  }
+
+  ZoneCacheConfig& setDataChecksum(bool dataChecksum) noexcept {
+    dataChecksum_ = dataChecksum;
+    return *this;
+  }
+
+  ZoneCacheConfig& setPreciseRemove(bool preciseRemove) noexcept {
+    preciseRemove_ = preciseRemove;
+    return *this;
+  }
+
+  bool isLruEnabled() const { return lru_; }
+
+  const std::vector<unsigned int>& getSFifoSegmentRatio() const {
+    return sFifoSegmentRatio_;
+  }
+
+  uint32_t getCleanRegions() const { return cleanRegions_; }
+
+  uint32_t getNumInMemBuffers() const { return numInMemBuffers_; }
+
+  uint32_t getRegionSize() const { return regionSize_; }
+
+  bool getDataChecksum() const { return dataChecksum_; }
+
+  const BlockCacheReinsertionConfig& getReinsertionConfig() const {
+    return reinsertionConfig_;
+  }
+
+  bool isPreciseRemove() const { return preciseRemove_; }
+
+ private:
+  // Whether Navy BlockCache will use region-based LRU eviction policy.
+  bool lru_{true};
+  // The ratio of segments for segmented FIFO eviction policy.
+  // Once segmented FIFO is enabled, lru_ will be false.
+  std::vector<unsigned int> sFifoSegmentRatio_;
+  // Config for constructing reinsertion policy.
+  BlockCacheReinsertionConfig reinsertionConfig_;
+  // Buffer of clean regions to maintain for eviction.
+  uint32_t cleanRegions_{1};
+  // Number of Navy BlockCache in-memory buffers.
+  uint32_t numInMemBuffers_{2};
+  // Size for a region for Navy BlockCache (must be multiple of
+  // blockSize_).
+  uint32_t regionSize_{16 * 1024 * 1024};
+  // Whether enabling data checksum for Navy BlockCache.
+  bool dataChecksum_{true};
+  // Whether to remove an item by checking the key (true) or only the hash value
+  // (false).
+  bool preciseRemove_{false};
+
+  friend class NavyConfig;
+};
+
+
+/**
+ * BlockCacheConfig provides APIs for users to configure BlockCache engine,
+ * which is one part of NavyConfig.
+ *
+ * By this class, users can:
+ * - enable FIFO or segmented FIFO eviction policy (default is LRU)
+ * - set number of clean regions
+ * - enable in-mem buffer (once enabled, the number is 2 * clean regions)
+ * - set size classes
+ * - set region size
+ * - set data checksum
+ * - get the values of all the above parameters
+ */
 class BlockCacheConfig {
  public:
   // Enable FIFO eviction policy (LRU will be disabled).
@@ -398,6 +521,27 @@ class BigHashConfig {
   uint64_t smallItemMaxSize_{};
 };
 
+class ZnsConfig {
+ public:
+  ZnsConfig& setZoneNum_(uint32_t zoneNum) {
+    zoneNum_ = zoneNum;
+    return *this;
+  }
+
+  ZnsConfig& setZnsDirect(bool znsDirect) {
+    znsDirect_= znsDirect;
+    return *this;
+  }
+
+  uint32_t getZoneNum() const { return zoneNum_; }
+
+  bool getZnsDirect() const { return znsDirect_; }
+
+ private:
+  uint32_t zoneNum_{0};
+  bool znsDirect_{false};
+};
+
 /**
  * NavyConfig provides APIs for users to set up Navy related settings for
  * NvmCache.
@@ -416,6 +560,7 @@ class NavyConfig {
 
  public:
   bool usesSimpleFile() const noexcept { return !fileName_.empty(); }
+  bool usesZnsFiles() const noexcept { return !znsPath_.empty(); }
   bool usesRaidFiles() const noexcept { return raidPaths_.size() > 0; }
   bool isBigHashEnabled() const { return bigHashConfig_.getSizePct() > 0; }
   std::map<std::string, std::string> serialize() const;
@@ -435,6 +580,7 @@ class NavyConfig {
   // ============ Device settings =============
   uint64_t getBlockSize() const { return blockSize_; }
   const std::string& getFileName() const;
+  const std::string& getZnsPath() const;
   const std::vector<std::string>& getRaidPaths() const;
   uint64_t getDeviceMetadataSize() const { return deviceMetadataSize_; }
   uint64_t getFileSize() const { return fileSize_; }
@@ -446,6 +592,10 @@ class NavyConfig {
 
   // Return a const BlockCacheConfig to read values of its parameters.
   const BlockCacheConfig& blockCache() const { return blockCacheConfig_; }
+
+  const ZoneCacheConfig& zoneCache() const { return zoneCacheConfig_; }
+
+  const ZnsConfig& znsConfig() const { return znsConfig_; }
 
   // ============ Job scheduler settings =============
   unsigned int getReaderThreads() const { return readerThreads_; }
@@ -474,6 +624,12 @@ class NavyConfig {
   void setSimpleFile(const std::string& fileName,
                      uint64_t fileSize,
                      bool truncateFile = false);
+
+  // Set the parameters for a ZNS file.
+  // @throw std::invalid_argument if RAID files have been already set.
+  // @throw std::invalid_argument if simple file have been already set.
+  void setZnsFile(const std::string& fileName, uint64_t fileSize, uint32_t zoneNum);
+
   // Set the parameters for RAID files.
   // @throw std::invalid_argument if a simple file has been already set
   //        or there is only one or fewer RAID paths.
@@ -495,9 +651,14 @@ class NavyConfig {
   // Return BlockCacheConfig for configuration.
   BlockCacheConfig& blockCache() noexcept { return blockCacheConfig_; }
 
+  ZoneCacheConfig& zoneCache() noexcept { return zoneCacheConfig_; }
+
   // ============ BigHash settings =============
   // Return BigHashConfig for configuration.
   BigHashConfig& bigHash() noexcept { return bigHashConfig_; }
+  
+  // ============ Zns settings =============
+  ZnsConfig& znsConfig() noexcept { return znsConfig_; }
 
   // ============ Job scheduler settings =============
   void setReaderAndWriterThreads(unsigned int readerThreads,
@@ -530,6 +691,10 @@ class NavyConfig {
   uint64_t blockSize_{4096};
   // The file name/path for caching.
   std::string fileName_;
+
+  // The zns name/path for caching.
+  std::string znsPath_;
+  
   // An array of Navy RAID device file paths.
   std::vector<std::string> raidPaths_;
   // The size of the metadata partition on the Navy device.
@@ -546,8 +711,13 @@ class NavyConfig {
   // ============ BlockCache settings =============
   BlockCacheConfig blockCacheConfig_{};
 
+  ZoneCacheConfig zoneCacheConfig_{};
+
   // ============ BigHash settings =============
   BigHashConfig bigHashConfig_{};
+
+  // ============ Zns setting =============
+  ZnsConfig znsConfig_{};
 
   // ============ Job scheduler settings =============
   // Number of asynchronous worker thread for read operation.

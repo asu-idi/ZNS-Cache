@@ -81,6 +81,20 @@ struct BlockCacheConfig {
   10: bool reinsertionPolicyEnabled = false,
 }
 
+struct ZoneCacheConfig {
+  1: required i64 version = 0,
+  2: required i64 cacheBaseOffset = 0,
+  3: required i64 cacheSize = 0,
+  4: required i32 allocAlignSize = 0,
+  5: required set<i32> deprecated_sizeClasses,
+  6: required bool checksum = false,
+  7: map<i64, i64> sizeDist,
+  8: i64 holeCount = 0,
+  9: i64 holeSizeTotal = 0,
+  10: bool reinsertionPolicyEnabled = false,
+}
+
+
 struct BigHashPersistentData {
   1: required i32 version = 0,
   2: required i64 generationTime = 0,

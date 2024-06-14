@@ -1,0 +1,1 @@
+./contrib/build-package.sh -jdi cachelib

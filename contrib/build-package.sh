@@ -151,6 +151,7 @@ case "$1" in
     fi
     cmake_custom_params="-DBUILD_SHARED_LIBS=ON"
     external_git_clone=yes
+    external_git_tag=a16bfcfda1ea994c1abec23cca8f530953042dfa
     ;;
 
   fmt)
@@ -159,6 +160,7 @@ case "$1" in
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR
     external_git_clone=yes
+    external_git_tag=74c51ff37e4c3a75d7a1532e3d96b64cbbe47263
     cmake_custom_params="-DBUILD_SHARED_LIBS=ON"
     if test "$build_tests" = "yes" ; then
         cmake_custom_params="$cmake_custom_params -DFMT_TEST=YES"
@@ -173,7 +175,8 @@ case "$1" in
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR/build/cmake
     external_git_clone=yes
-    external_git_branch=release
+    external_git_tag=v1.5.2
+    # external_git_branch=release
     if test "$build_tests" = "yes" ; then
         cmake_custom_params="-DZSTD_BUILD_TESTS=ON"
     else
@@ -187,6 +190,7 @@ case "$1" in
     REPODIR=cachelib/external/$NAME
     SRCDIR=$REPODIR
     external_git_clone=yes
+    external_git_tag=89d30537eb5326606b6a45bbf00b4f4ff04417fa
     ;;
 
   folly)

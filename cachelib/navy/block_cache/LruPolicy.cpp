@@ -92,6 +92,35 @@ RegionId LruPolicy::evict() {
   return RegionId{retRegion};
 }
 
+RegionId LruPolicy::evictAt(const RegionId &regionId) {
+  uint32_t retRegion{kInvalidIndex};
+  uint32_t secsSinceAccess{0};
+  uint32_t secsSinceCreate{0};
+  uint32_t hits{0};
+  auto i = regionId.index();
+
+  {
+    std::lock_guard<std::mutex> lock{mutex_};
+    if (i == kInvalidIndex) {
+      return RegionId{};
+    }
+    auto node = array_[i];
+    if (node.next == kInvalidIndex && node.prev == kInvalidIndex) {
+      return RegionId{};
+    }
+    retRegion = i;
+    secsSinceCreate = array_[i].secondsSinceCreation().count();
+    secsSinceAccess = array_[i].secondsSinceAccess().count();
+    hits = array_[i].hits;
+    unlink(i);
+  }
+
+  secSinceInsertionEstimator_.trackValue(secsSinceCreate);
+  secSinceAccessEstimator_.trackValue(secsSinceAccess);
+  hitsEstimator_.trackValue(hits);
+  return RegionId{retRegion};
+}
+
 void LruPolicy::reset() {
   std::lock_guard<std::mutex> lock{mutex_};
   array_.clear();

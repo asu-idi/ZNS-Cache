@@ -19,7 +19,7 @@
 #include "cachelib/cachebench/cache/Cache.h"
 
 DEFINE_bool(report_api_latency,
-            false,
+            true,
             "Enable reporting cache API latency tracking");
 
 namespace facebook {

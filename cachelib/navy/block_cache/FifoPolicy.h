@@ -53,6 +53,9 @@ class FifoPolicy final : public EvictionPolicy {
   // Evicts the first added region and stops tracking.
   RegionId evict() override;
 
+  // Manually, evicts a region and stops tracking.
+  RegionId evictAt(const RegionId &regionId);
+
   // Resets FIFO policy to the initial state.
   void reset() override;
 
@@ -124,6 +127,9 @@ class SegmentedFifoPolicy final : public EvictionPolicy {
 
   // Evicts the region with the lowest priority and stops tracking.
   RegionId evict() override;
+
+  // Manually, evicts a region and stops tracking.
+  RegionId evictAt(const RegionId &regionId);
 
   // Resets Segmented FIFO policy to the initial state.
   void reset() override;

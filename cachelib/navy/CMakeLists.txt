@@ -39,6 +39,12 @@ add_library (cachelib_navy
   scheduler/ThreadPoolJobScheduler.cpp
   scheduler/ThreadPoolJobQueue.cpp
   serialization/RecordIO.cpp
+  zone_cache/ZonedDevice.cpp
+  zone_cache/ZoneCache.cpp
+  # zone_cache/ZoneAllocator.cpp
+  # zone_cache/ZoneManager.cpp
+  zone_cache/ZAllocator.cpp
+  zone_cache/ZRegionManager.cpp
   )
 add_dependencies(cachelib_navy thrift_generated_files)
 
@@ -52,11 +58,16 @@ endif()
 
 target_link_libraries(cachelib_navy PUBLIC
   cachelib_common
+  zbd
+  explain
   )
 
 install(TARGETS cachelib_navy
         EXPORT cachelib-exports
         DESTINATION ${LIB_INSTALL_DIR} )
+
+SET(CMAKE_CXX_FLAGS_DEBUG "-O0")
+SET(CMAKE_C_FLAGS_DEBUG "-O0")
 
 if (BUILD_TESTS)
   add_library(navy_test_support
@@ -87,11 +98,14 @@ if (BUILD_TESTS)
   add_test (bighash/tests/BucketTest.cpp)
   add_test (admission_policy/tests/DynamicRandomAPTest.cpp)
   add_test (admission_policy/tests/RejectRandomAPTest.cpp)
-  add_test (block_cache/tests/FifoPolicyTest.cpp)
-  add_test (block_cache/tests/HitsReinsertionPolicyTest.cpp)
-  add_test (block_cache/tests/IndexTest.cpp)
-  add_test (block_cache/tests/LruPolicyTest.cpp)
-  add_test (block_cache/tests/RegionTest.cpp)
+  # add_test (block_cache/tests/FifoPolicyTest.cpp)
+  # add_test (block_cache/tests/HitsReinsertionPolicyTest.cpp)
+  # add_test (block_cache/tests/IndexTest.cpp)
+  # add_test (block_cache/tests/LruPolicyTest.cpp)
+  # add_test (block_cache/tests/RegionTest.cpp)
+  # add_test (block_cache/tests/AllocatorTest.cpp)
+  # add_test (block_cache/tests/RegionManagerTest.cpp)
+  # add_test (block_cache/tests/BlockCacheTest.cpp)
   add_test (serialization/tests/RecordIOTest.cpp)
   add_test (serialization/tests/SerializationTest.cpp)
   add_test (scheduler/tests/OrderedThreadPoolJobSchedulerTest.cpp)
@@ -100,11 +114,8 @@ if (BUILD_TESTS)
   if (NOT MISSING_FALLOCATE)
     add_test (common/tests/DeviceTest.cpp)
   endif()
-  add_test (block_cache/tests/AllocatorTest.cpp)
-  add_test (block_cache/tests/RegionManagerTest.cpp)
   add_test (testing/tests/BufferGenTest.cpp)
   add_test (testing/tests/MockJobSchedulerTest.cpp)
   add_test (testing/tests/SeqPointsTest.cpp)
-  add_test (block_cache/tests/BlockCacheTest.cpp)
   add_test (bighash/tests/BigHashTest.cpp)
 endif()

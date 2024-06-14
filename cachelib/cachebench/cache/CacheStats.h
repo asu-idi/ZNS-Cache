@@ -78,6 +78,28 @@ struct Stats {
   double nvmWriteLatencyMicrosP999999{0};
   double nvmWriteLatencyMicrosP100{0};
 
+  double debugLatencyMicrosP50{0};
+  double debugLatencyMicrosP90{0};
+  double debugLatencyMicrosP99{0};
+  double debugLatencyMicrosP999{0};
+
+  double cacheReadLatencyMicrosP50{0};
+  double cacheReadLatencyMicrosP90{0};
+  double cacheReadLatencyMicrosP99{0};
+  double cacheReadLatencyMicrosP999{0};
+  double cacheReadLatencyMicrosP9999{0};
+  double cacheReadLatencyMicrosP99999{0};
+  double cacheReadLatencyMicrosP999999{0};
+  double cacheReadLatencyMicrosP100{0};
+  double cacheWriteLatencyMicrosP50{0};
+  double cacheWriteLatencyMicrosP90{0};
+  double cacheWriteLatencyMicrosP99{0};
+  double cacheWriteLatencyMicrosP999{0};
+  double cacheWriteLatencyMicrosP9999{0};
+  double cacheWriteLatencyMicrosP99999{0};
+  double cacheWriteLatencyMicrosP999999{0};
+  double cacheWriteLatencyMicrosP100{0};
+
   uint64_t numNvmExceededMaxRetry{0};
 
   uint64_t numNvmDeletes{0};
@@ -192,6 +214,24 @@ struct Stats {
       fmtLatency(writeCat, "p99999", nvmWriteLatencyMicrosP99999);
       fmtLatency(writeCat, "p999999", nvmWriteLatencyMicrosP999999);
       fmtLatency(writeCat, "p100", nvmWriteLatencyMicrosP100);
+
+      folly::StringPiece navyDebugCat = "Debug Latency";
+      fmtLatency(navyDebugCat, "p50", debugLatencyMicrosP50);
+      fmtLatency(navyDebugCat, "p90", debugLatencyMicrosP90);
+      fmtLatency(navyDebugCat, "p99", debugLatencyMicrosP99);
+      fmtLatency(navyDebugCat, "p999", debugLatencyMicrosP999);
+
+      folly::StringPiece navyReadCat = "Navy Read  Latency";
+      folly::StringPiece navyWriteCat = "Navy Write Latency";
+      fmtLatency(navyReadCat, "p50", cacheReadLatencyMicrosP50);
+      fmtLatency(navyReadCat, "p90", cacheReadLatencyMicrosP90);
+      fmtLatency(navyReadCat, "p99", cacheReadLatencyMicrosP99);
+      fmtLatency(navyReadCat, "p999", cacheReadLatencyMicrosP999);
+
+      fmtLatency(navyWriteCat, "p50", cacheWriteLatencyMicrosP50);
+      fmtLatency(navyWriteCat, "p90", cacheWriteLatencyMicrosP90);
+      fmtLatency(navyWriteCat, "p99", cacheWriteLatencyMicrosP99);
+      fmtLatency(navyWriteCat, "p999", cacheWriteLatencyMicrosP999);
 
       constexpr double GB = 1024.0 * 1024 * 1024;
       double appWriteAmp =

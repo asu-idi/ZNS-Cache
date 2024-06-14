@@ -20,6 +20,7 @@
 
 #include "cachelib/navy/admission_policy/DynamicRandomAP.h"
 #include "cachelib/navy/common/Hash.h"
+#include "cachelib/navy/common/Types.h"
 #include "cachelib/navy/driver/NoopEngine.h"
 #include "folly/Format.h"
 
@@ -49,6 +50,7 @@ Driver::Driver(Config&& config, ValidConfigTag)
       maxParcelMemory_{config.maxParcelMemory},
       metadataSize_{config.metadataSize},
       device_{std::move(config.device)},
+      deviceForBigHash_{std::move(config.deviceForBigHash)},
       scheduler_{std::move(config.scheduler)},
       largeItemCache_{std::move(config.largeItemCache)},
       smallItemCache_{std::move(config.smallItemCache)},
@@ -155,8 +157,10 @@ Status Driver::insertAsync(HashedKey hk, BufferView value, InsertCallback cb) {
     return Status::Rejected;
   }
 
+  auto timeBegin = getSteadyClock();
+
   scheduler_->enqueueWithKey(
-      [this, cb = std::move(cb), hk, value, skipInsertion = false]() mutable {
+      [this, cb = std::move(cb), hk, value, timeBegin, skipInsertion = false]() mutable {
         auto selection = select(hk, value);
         Status status = Status::Ok;
         if (!skipInsertion) {
@@ -185,6 +189,8 @@ Status Driver::insertAsync(HashedKey hk, BufferView value, InsertCallback cb) {
 
         switch (status) {
         case Status::Ok:
+          writeLatencyEstimator_.trackValue(
+              toMicros(getSteadyClock() - timeBegin).count());
           succInsertCount_.inc();
           break;
         case Status::BadState:
@@ -233,8 +239,9 @@ Status Driver::lookupAsync(HashedKey hk, LookupCallback cb) {
   lookupCount_.inc();
   XDCHECK(cb);
 
+  auto timeBegin = getSteadyClock();
   scheduler_->enqueueWithKey(
-      [this, cb = std::move(cb), hk, skipLargeItemCache = false]() mutable {
+      [this, cb = std::move(cb), hk, timeBegin, skipLargeItemCache = false]() mutable {
         Buffer value;
         Status status{Status::NotFound};
         if (!skipLargeItemCache) {
@@ -251,6 +258,10 @@ Status Driver::lookupAsync(HashedKey hk, LookupCallback cb) {
           }
         }
 
+        if (status == Status::Ok) {
+          readLatencyEstimator_.trackValue(
+              toMicros(getSteadyClock() - timeBegin).count());
+        }
         if (cb) {
           cb(status, hk, std::move(value));
         }
@@ -393,6 +404,10 @@ void Driver::getCounters(const CounterVisitor& visitor) const {
   visitor("navy_io_errors", ioErrorCount_.get());
   visitor("navy_parcel_memory", parcelMemory_.get());
   visitor("navy_concurrent_inserts", concurrentInserts_.get());
+  readLatencyEstimator_.visitQuantileEstimator(visitor,
+                                               "navy_cache_read_latency_us");
+  writeLatencyEstimator_.visitQuantileEstimator(visitor,
+                                                "navy_cache_write_latency_us");
   scheduler_->getCounters(visitor);
   largeItemCache_->getCounters(visitor);
   smallItemCache_->getCounters(visitor);

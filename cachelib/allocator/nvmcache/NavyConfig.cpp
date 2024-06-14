@@ -29,6 +29,12 @@ const std::string& NavyConfig::getFileName() const {
   XDCHECK(usesSimpleFile());
   return fileName_;
 }
+
+const std::string& NavyConfig::getZnsPath() const {
+  XDCHECK(usesZnsFiles());
+  return znsPath_;
+}
+
 const std::vector<std::string>& NavyConfig::getRaidPaths() const {
   XDCHECK(usesRaidFiles());
   return raidPaths_;
@@ -75,6 +81,18 @@ void NavyConfig::setSimpleFile(const std::string& fileName,
   truncateFile_ = truncateFile;
 }
 
+void NavyConfig::setZnsFile(const std::string& fileName, uint64_t fileSize, uint32_t zoneNum) {
+  if (usesRaidFiles()) {
+    throw std::invalid_argument("already set RAID files");
+  }
+  if (usesSimpleFile()) {
+    throw std::invalid_argument("already set a simple file");
+  }
+  znsPath_ = fileName;
+  fileSize_ = fileSize;
+  // truncateFile_ = truncateFile;
+}
+
 void NavyConfig::setRaidFiles(std::vector<std::string> raidPaths,
                               uint64_t fileSize,
                               bool truncateFile) {
@@ -89,6 +107,36 @@ void NavyConfig::setRaidFiles(std::vector<std::string> raidPaths,
   fileSize_ = fileSize;
   truncateFile_ = truncateFile;
 }
+
+ZoneCacheConfig& ZoneCacheConfig::enableHitsBasedReinsertion(
+    uint8_t hitsThreshold) {
+  reinsertionConfig_.enableHitsBased(hitsThreshold);
+  return *this;
+}
+
+ZoneCacheConfig& ZoneCacheConfig::enablePctBasedReinsertion(
+    unsigned int pctThreshold) {
+  reinsertionConfig_.enablePctBased(pctThreshold);
+  return *this;
+}
+
+ZoneCacheConfig& ZoneCacheConfig::enableCustomReinsertion(
+    std::shared_ptr<BlockCacheReinsertionPolicy> policy) {
+  reinsertionConfig_.enableCustom(policy);
+  return *this;
+}
+
+ZoneCacheConfig& ZoneCacheConfig::setCleanRegions(
+    uint32_t cleanRegions) noexcept {
+  cleanRegions_ = cleanRegions;
+  // Increasing number of in-mem buffers is a short-term mitigation
+  // to avoid reinsertion failure when all buffers in clean regions
+  // are pending flush and the reclaim job is running before flushing complete
+  // (see T93961857, T93959811)
+  numInMemBuffers_ = 2 * cleanRegions;
+  return *this;
+}
+
 
 BlockCacheConfig& BlockCacheConfig::enableHitsBasedReinsertion(
     uint8_t hitsThreshold) {
